@@ -6,6 +6,8 @@ local M = {}
 local SUPPORTED_FILE_FORMATS = {
   "*.yaml",
   "*.json",
+  -- Assumes the `filetype` is set to `json`
+  "*.dockerconfigjson",
 }
 
 ---@param bufnr number
@@ -13,43 +15,51 @@ local function sops_decrypt_buffer(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
   local cwd = vim.fs.dirname(path)
 
-  vim.system({ "sops", "--decrypt", path }, { cwd = cwd, text = true }, function(out)
-    if out.code ~= 0 then
-      vim.notify("Failed to decrypt file", vim.log.levels.WARN)
+  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
 
-      return
+  vim.system(
+    { "sops", "--decrypt", "--input-type", filetype, "--output-type", filetype, path },
+    { cwd = cwd, text = true },
+    function(out)
+      if out.code ~= 0 then
+        vim.notify("Failed to decrypt file", vim.log.levels.WARN)
+
+        return
+      end
+
+      vim.schedule(function()
+        local decrypted_lines = vim.fn.split(out.stdout, "\n", false)
+
+        -- Make this buffer writable only through our auto command
+        vim.api.nvim_set_option_value("buftype", "acwrite", { buf = bufnr })
+
+        -- Swap the buffer contents with the decrypted contents
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, decrypted_lines)
+
+        -- Clear the undo history
+        local old_undo_levels = vim.api.nvim_get_option_value("undolevels", { buf = bufnr })
+        vim.api.nvim_set_option_value("undolevels", -1, { buf = bufnr })
+        vim.cmd('exe "normal a \\<BS>\\<Esc>"')
+        vim.api.nvim_set_option_value("undolevels", old_undo_levels, { buf = bufnr })
+
+        -- Mark the file as not modified
+        vim.api.nvim_set_option_value("modified", false, { buf = bufnr })
+
+        -- Run BufReadPost autocmds since the buffer contents have changed
+        vim.api.nvim_exec_autocmds("BufReadPost", {
+          buffer = bufnr,
+        })
+      end)
     end
-
-    vim.schedule(function()
-      local decrypted_lines = vim.fn.split(out.stdout, "\n", false)
-
-      -- Make this buffer writable only through our auto command
-      vim.api.nvim_set_option_value("buftype", "acwrite", { buf = bufnr })
-
-      -- Swap the buffer contents with the decrypted contents
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, decrypted_lines)
-
-      -- Clear the undo history
-      local old_undo_levels = vim.api.nvim_get_option_value("undolevels", { buf = bufnr })
-      vim.api.nvim_set_option_value("undolevels", -1, { buf = bufnr })
-      vim.cmd('exe "normal a \\<BS>\\<Esc>"')
-      vim.api.nvim_set_option_value("undolevels", old_undo_levels, { buf = bufnr })
-
-      -- Mark the file as not modified
-      vim.api.nvim_set_option_value("modified", false, { buf = bufnr })
-
-      -- Run BufReadPost autocmds since the buffer contents have changed
-      vim.api.nvim_exec_autocmds("BufReadPost", {
-        buffer = bufnr,
-      })
-    end)
-  end)
+  )
 end
 
 ---@param bufnr number
 local function sops_encrypt_buffer(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
   local cwd = vim.fs.dirname(path)
+
+  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
 
   -- We have to use vim.fn.jobstart here because vim.system, and vim.uv don't support /dev/stdin
   -- https://github.com/neovim/neovim/issues/14049
@@ -59,6 +69,10 @@ local function sops_encrypt_buffer(bufnr)
     path,
     "--output",
     path,
+    "--input-type",
+    filetype,
+    "--output-type",
+    filetype,
     "--encrypt",
     "/dev/stdin",
   }, {
