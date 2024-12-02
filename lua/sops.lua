@@ -126,7 +126,6 @@ M.setup = function(opts)
     for _, format in ipairs(opts.supported_file_formats) do
       table.insert(SUPPORTED_FILE_FORMATS, format)
     end
-    vim.notify("SOPS.nvim configuration updated with additional patterns.", vim.log.levels.INFO)
   end
 
   vim.api.nvim_create_autocmd({ "BufReadPost", "FileReadPost" }, {
