@@ -3,12 +3,16 @@ local util = require("util")
 ---@class SopsModule
 local M = {}
 
-local SUPPORTED_FILE_FORMATS = {
+-- Default file formats supported by the plugin
+local DEFAULT_SUPPORTED_FILE_FORMATS = {
   "*.yaml",
   "*.json",
   -- Assumes the `filetype` is set to `json`
   "*.dockerconfigjson",
 }
+
+---@type table
+local SUPPORTED_FILE_FORMATS = vim.deepcopy(DEFAULT_SUPPORTED_FILE_FORMATS)
 
 ---@param bufnr number
 local function sops_decrypt_buffer(bufnr)
@@ -113,7 +117,17 @@ local function sops_encrypt_buffer(bufnr)
   })
 end
 
-M.setup = function()
+---@param opts table
+M.setup = function(opts)
+  opts = opts or {}
+
+  -- Allow overriding or appending to the supported file formats
+  if opts.supported_file_formats then
+    for _, format in ipairs(opts.supported_file_formats) do
+      table.insert(SUPPORTED_FILE_FORMATS, format)
+    end
+  end
+
   vim.api.nvim_create_autocmd({ "BufReadPost", "FileReadPost" }, {
     pattern = SUPPORTED_FILE_FORMATS,
     callback = function()
