@@ -25,13 +25,13 @@ local function sops_decrypt_buffer(bufnr)
     { "sops", "--decrypt", "--input-type", filetype, "--output-type", filetype, path },
     { cwd = cwd, text = true },
     function(out)
-      if out.code ~= 0 then
-        vim.notify("Failed to decrypt file", vim.log.levels.WARN)
-
-        return
-      end
-
       vim.schedule(function()
+        if out.code ~= 0 then
+          vim.notify("Failed to decrypt file", vim.log.levels.WARN)
+
+          return
+        end
+
         local decrypted_lines = vim.fn.split(out.stdout, "\n", false)
 
         -- Make this buffer writable only through our auto command
