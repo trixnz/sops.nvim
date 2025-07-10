@@ -2,6 +2,7 @@ local M = {}
 
 local SOPS_MARKER_BYTES = {
   ["yaml"] = "mac: ENC[",
+  ["yaml.helm-values"] = "mac: ENC[",
   ["json"] = '"mac": "ENC[',
 }
 
