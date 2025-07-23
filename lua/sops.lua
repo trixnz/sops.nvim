@@ -63,58 +63,55 @@ local function sops_encrypt_buffer(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
   local cwd = vim.fs.dirname(path)
 
-  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
+  local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h")
+  local editor_script = vim.fs.joinpath(plugin_root, "scripts", "sops-editor.sh")
 
-  -- We have to use vim.fn.jobstart here because vim.system, and vim.uv don't support /dev/stdin
-  -- https://github.com/neovim/neovim/issues/14049
-  local channel = vim.fn.jobstart({
-    "sops",
-    "--filename-override",
-    path,
-    "--output",
-    path,
-    "--input-type",
-    filetype,
-    "--output-type",
-    filetype,
-    "--encrypt",
-    "/dev/stdin",
-  }, {
-    cwd = cwd,
-    pty = true,
-  })
-
-  if channel <= 0 then
-    vim.notify("Failed to start job", vim.log.levels.WARN)
+  if vim.fn.filereadable(editor_script) == 0 then
+    vim.notify("SOPS editor script not found: " .. editor_script, vim.log.levels.WARN)
 
     return
+  end
+
+  local temp_file = vim.fn.tempname()
+  local function cleanup()
+    vim.fn.delete(temp_file)
   end
 
   local plaintext_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  vim.fn.chansend(channel, plaintext_lines)
-  -- Signal end of input. vim.fn.chanclose didn't seem to do the trick.
-  vim.fn.chansend(channel, "\r\004")
+  local success = vim.fn.writefile(plaintext_lines, temp_file) == 0
 
-  local code = vim.fn.jobwait({ channel }, 1000)[1]
-  if code < 0 then
-    vim.notify("Failed to run job", vim.log.levels.WARN)
+  if not success then
+    cleanup()
+    vim.notify("Failed to write temp file", vim.log.levels.WARN)
 
     return
   end
 
-  if code ~= 0 then
-    vim.notify("SOPs failed to encrypt file: errno " .. code, vim.log.levels.WARN)
+  vim.system({ "sops", "edit", path }, {
+    cwd = cwd,
+    env = {
+      SOPS_EDITOR = editor_script,
+      SOPS_NVIM_TEMP_FILE = temp_file,
+    },
+    text = true,
+  }, function(out)
+    vim.schedule(function()
+      cleanup()
 
-    return
-  end
+      if out.code ~= 0 then
+        vim.notify("SOPS failed to edit file: " .. (out.stderr or ""), vim.log.levels.WARN)
+        return
+      end
 
-  -- Mark the file as not modified
-  vim.api.nvim_set_option_value("modified", false, { buf = bufnr })
+      -- Mark the file as not modified
+      vim.api.nvim_set_option_value("modified", false, { buf = bufnr })
 
-  -- Run BufReadPost autocmds since the buffer contents have changed
-  vim.api.nvim_exec_autocmds("BufReadPost", {
-    buffer = bufnr,
-  })
+      -- Run BufReadPost autocmds since the buffer contents have changed
+      vim.api.nvim_exec_autocmds("BufReadPost", {
+        buffer = bufnr,
+      })
+    end)
+  end)
 end
 
 ---@param opts table
