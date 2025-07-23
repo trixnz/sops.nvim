@@ -6,6 +6,7 @@ local M = {}
 -- Default file formats supported by the plugin
 local DEFAULT_SUPPORTED_FILE_FORMATS = {
   "*.yaml",
+  "*.yml",
   "*.json",
   -- Assumes the `filetype` is set to `json`
   "*.dockerconfigjson",
