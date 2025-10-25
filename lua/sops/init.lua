@@ -1,4 +1,4 @@
-local util = require("util")
+local util = require("sops.util")
 
 ---@class SopsModule
 local M = {}
@@ -64,7 +64,7 @@ local function sops_encrypt_buffer(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
   local cwd = vim.fs.dirname(path)
 
-  local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h")
+  local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h"):sub(1, -4)
   local editor_script = vim.fs.joinpath(plugin_root, "scripts", "sops-editor.sh")
 
   if vim.fn.filereadable(editor_script) == 0 then
@@ -115,7 +115,7 @@ local function sops_encrypt_buffer(bufnr)
   end)
 end
 
----@param opts table
+---@param opts? table
 M.setup = function(opts)
   opts = opts or {}
 
