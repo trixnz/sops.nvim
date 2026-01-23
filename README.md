@@ -11,6 +11,7 @@ disabling; the command will not write modified buffers automatically.
 
 - YAML
 - JSON
+- TOML
 
 ## Requirements
 
