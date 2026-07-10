@@ -4,6 +4,9 @@ sops.nvim is a Neovim plugin for working with SOPS encrypted files. It provides
 transparent decryption and encryption of SOPS files when they are opened and
 saved.
 
+You can toggle the plugin with the `SopsToggle` command. All open SOPS buffers must be fully loaded and saved before
+disabling; the command will not write modified buffers automatically.
+
 ## Supported Files
 
 - YAML
@@ -21,7 +24,10 @@ available on your path
 ```lua
 {
     "trixnz/sops.nvim",
-    lazy = false
+    lazy = false,
+    opts = {
+        disabled = false,
+    }
 }
 ```
 
