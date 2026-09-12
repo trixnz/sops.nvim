@@ -11,6 +11,7 @@ local DEFAULT_SUPPORTED_FILE_FORMATS = {
   -- Assumes the `filetype` is set to `json`.
   "*.dockerconfigjson",
   "*.toml",
+  "*.env",
 }
 
 local supported_file_formats = {}
@@ -63,7 +64,11 @@ local function decrypt_buffer(bufnr, buffer)
   local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
   local input_type = filetype
   local output_type = filetype
-  if filetype == "toml" then -- sops doesn't support toml yet, but can be encrypted as binary for a work around
+
+  if filetype == "env" then -- neovim refers to dot files as 'env'
+      input_type = "dotenv" -- sops refers to dot files as 'dotenv'
+      output_type = "dotenv"
+  elseif filetype == "toml" then -- sops doesn't support toml yet, but can be encrypted as binary for a work around
       input_type = "binary"
       output_type = "binary"
   end

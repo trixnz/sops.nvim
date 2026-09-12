@@ -6,6 +6,7 @@ local SOPS_MARKER_BYTES = {
   ["json"] = '"mac": "ENC[',
   ["binary"] = '"mac": "ENC[',
   ["toml"] = '"mac": "ENC[',
+  ["env"] = "sops_mac=ENC[",
 }
 
 M.is_sops_encrypted = function(bufnr)
