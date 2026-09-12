@@ -6,13 +6,33 @@ local SOPS_MARKER_BYTES = {
   ["json"] = '"mac": "ENC[',
   ["binary"] = '"mac": "ENC[',
   ["toml"] = '"mac": "ENC[',
+  ["env"] = "sops_mac=ENC[",
 }
+
+---@param bufnr integer
+local function is_env_file(bufnr)
+  local filename = vim.fs.basename(vim.api.nvim_buf_get_name(bufnr))
+  return filename:match("%.env$") ~= nil
+end
+
+local is_conf_file = function(bufnr)
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  local extension = vim.fn.fnamemodify(path, ":e")
+  return extension == "conf"
+end
 
 M.is_sops_encrypted = function(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
 
-  local marker = SOPS_MARKER_BYTES[filetype]
+  local marker
+  if is_conf_file(bufnr) then
+    marker = SOPS_MARKER_BYTES.binary
+  elseif is_env_file(bufnr) then
+    marker = SOPS_MARKER_BYTES.env
+  else
+    marker = SOPS_MARKER_BYTES[filetype]
+  end
   if not marker then
     return false
   end
@@ -22,6 +42,20 @@ M.is_sops_encrypted = function(bufnr)
       return true
     end
   end
+end
+
+M.get_sops_format = function(bufnr)
+  local nvim_filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
+  local sops_filetype = nvim_filetype
+
+  if is_conf_file(bufnr) then -- conf does not have a standard format, so binary is assumed for maximum compatibility
+    sops_filetype = "binary"
+  elseif is_env_file(bufnr) or nvim_filetype == "env" then -- Neovim < 0.12 detects .env files as sh.
+    sops_filetype = "dotenv" -- sops refers to dotenv files as 'dotenv'
+  elseif nvim_filetype == "toml" then -- sops doesn't support toml yet, but can be encrypted as binary for a work around
+    sops_filetype = "binary"
+  end
+  return sops_filetype
 end
 
 return M

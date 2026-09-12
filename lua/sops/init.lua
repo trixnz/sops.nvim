@@ -11,6 +11,8 @@ local DEFAULT_SUPPORTED_FILE_FORMATS = {
   -- Assumes the `filetype` is set to `json`.
   "*.dockerconfigjson",
   "*.toml",
+  "*.conf",
+  "*.env",
 }
 
 local supported_file_formats = {}
@@ -60,13 +62,8 @@ local function decrypt_buffer(bufnr, buffer)
   local token = buffer.token
   local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
-  local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
-  local input_type = filetype
-  local output_type = filetype
-  if filetype == "toml" then -- sops doesn't support toml yet, but can be encrypted as binary for a work around
-      input_type = "binary"
-      output_type = "binary"
-  end
+  local input_type = util.get_sops_format(bufnr)
+  local output_type = input_type
   vim.system(
     { "sops", "--decrypt", "--input-type", input_type, "--output-type", output_type, path },
     { cwd = vim.fs.dirname(path), text = true },
