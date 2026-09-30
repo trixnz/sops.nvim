@@ -1,4 +1,5 @@
 local util = require("sops.util")
+local proc = require("sops.proc")
 
 local M = {
   disabled = false,
@@ -64,7 +65,7 @@ local function decrypt_buffer(bufnr, buffer)
   local path = vim.api.nvim_buf_get_name(bufnr)
   local input_type = util.get_sops_format(bufnr)
   local output_type = input_type
-  vim.system(
+  proc.run(
     { "sops", "--decrypt", "--input-type", input_type, "--output-type", output_type, path },
     { cwd = vim.fs.dirname(path), text = true },
     function(result)
@@ -132,7 +133,7 @@ local function start_encryption(bufnr, buffer, callback)
 
   local token = buffer.token
   local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
-  vim.system({ "sops", "edit", path }, {
+  proc.run({ "sops", "edit", path }, {
     cwd = vim.fs.dirname(path),
     env = {
       SOPS_EDITOR = editor_script,

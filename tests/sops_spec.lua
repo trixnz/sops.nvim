@@ -36,7 +36,12 @@ local function write_encrypted_file(path, name)
 end
 
 local pending_system_calls = {}
+local pending_jobstart_calls = {}
+local chansend_calls = {}
+local inputsecret_prompts = {}
+local inputsecret_response = "testpass"
 local notifications = {}
+local next_job_id = 1
 -- luacheck: push ignore 122
 vim.system = function(command, options, callback)
   table.insert(pending_system_calls, {
@@ -48,6 +53,23 @@ vim.system = function(command, options, callback)
 end
 vim.notify = function(message, level)
   table.insert(notifications, { message = message, level = level })
+end
+vim.fn.jobstart = function(command, options)
+  local job_id = next_job_id
+  next_job_id = next_job_id + 1
+  table.insert(pending_jobstart_calls, {
+    command = command,
+    options = options,
+    job_id = job_id,
+  })
+  return job_id
+end
+vim.fn.chansend = function(job_id, data)
+  table.insert(chansend_calls, { job_id = job_id, data = data })
+end
+vim.fn.inputsecret = function(prompt)
+  table.insert(inputsecret_prompts, prompt)
+  return inputsecret_response
 end
 -- luacheck: pop
 
@@ -74,6 +96,17 @@ local function take_system_call(expected_operation)
   local call = table.remove(pending_system_calls, 1)
   assert_true(call, "expected a pending vim.system call")
   assert_equal(expected_operation, call.command[2], "unexpected sops operation")
+  return call
+end
+
+local function take_jobstart_call()
+  if #pending_jobstart_calls == 0 then
+    vim.wait(100, function()
+      return #pending_jobstart_calls > 0
+    end, 10)
+  end
+  local call = table.remove(pending_jobstart_calls, 1)
+  assert_true(call, "expected a pending vim.fn.jobstart call")
   return call
 end
 
@@ -140,6 +173,57 @@ local function test_decrypt_started_by_real_bufreadpost_is_not_rejected()
   complete_decryption("secret: plaintext")
 
   assert_equal({ "secret: plaintext" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  assert_equal("acwrite", vim.api.nvim_get_option_value("buftype", { buf = bufnr }))
+  assert_equal(1, count_buffer_write_autocmds(bufnr))
+
+  vim.fn.delete(directory, "rf")
+end
+
+local function test_ssh_key_passphrase_prompt_is_answered_interactively()
+  local directory = vim.fn.tempname()
+  vim.fn.mkdir(directory, "p")
+  local path = directory .. "/ssh-key.yaml"
+  write_encrypted_file(path, "ssh-key")
+
+  local sops = require("sops")
+  sops.setup()
+  local bufnr = open_encrypted_file(path)
+
+  -- A plain, non-interactive run always fails this way when the SSH identity sops was told to use
+  -- (SOPS_AGE_SSH_PRIVATE_KEY_FILE/_CMD) is passphrase-protected: age refuses to read a passphrase
+  -- from anything but a real terminal.
+  local decrypt_call = take_system_call("--decrypt")
+  decrypt_call.callback({
+    code = 128,
+    stdout = "",
+    stderr = 'age: failed to obtain passphrase: could not read passphrase for "/home/user/.ssh/id_ed25519": '
+      .. "standard input is not a terminal, and /dev/tty is not available",
+  })
+  wait_for_scheduled_callbacks()
+
+  local job = take_jobstart_call()
+  assert_equal(decrypt_call.command, job.command, "interactive retry ran a different command")
+  assert_true(job.options.pty, "interactive retry did not request a pty")
+
+  job.options.on_stdout(job.job_id, { 'Enter passphrase for "/home/user/.ssh/id_ed25519": ' })
+  wait_for_scheduled_callbacks()
+  assert_equal(1, #inputsecret_prompts, "did not prompt for the passphrase")
+  assert_true(
+    string.find(inputsecret_prompts[1], "Enter passphrase", 1, true) ~= nil,
+    "prompt text was not forwarded to inputsecret"
+  )
+  assert_equal(1, #chansend_calls, "did not send the passphrase back to the job")
+  assert_equal(job.job_id, chansend_calls[1].job_id, "sent the passphrase to the wrong job")
+  assert_equal(inputsecret_response .. "\r", chansend_calls[1].data, "did not send the entered passphrase")
+
+  -- Once accepted, age echoes a newline and repaints over the prompt line before the real output
+  -- resumes; that terminal noise must not leak into the decrypted buffer.
+  job.options.on_stdout(job.job_id, { "\r\r", "\27[F\27[K" })
+  job.options.on_stdout(job.job_id, { "secret: from ssh key\r", "" })
+  job.options.on_exit(job.job_id, 0)
+  wait_for_scheduled_callbacks()
+
+  assert_equal({ "secret: from ssh key" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   assert_equal("acwrite", vim.api.nvim_get_option_value("buftype", { buf = bufnr }))
   assert_equal(1, count_buffer_write_autocmds(bufnr))
 
@@ -377,6 +461,7 @@ end
 local tests = {
   setup = test_setup_is_idempotent,
   real_open = test_decrypt_started_by_real_bufreadpost_is_not_rejected,
+  ssh_key_passphrase = test_ssh_key_passphrase_prompt_is_answered_interactively,
   unload = test_unload_tears_down_buffer_management,
   stale_decrypt = test_disable_rejects_pending_decryption,
   pending_edit = test_edited_pending_decryption_requires_reload,
